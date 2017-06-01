@@ -346,6 +346,9 @@ def random_transform(x, y=None,
                      warp_sigma=0.1,
                      warp_grid_size=3,
                      crop_size=None,
+                     crop_mode='random',
+                     smart_crop_w_shift_range=0,
+                     smart_crop_h_shift_range=0,
                      return_optical_flow=False,
                      nclasses=None,
                      gamma=0.,
@@ -410,6 +413,14 @@ def random_transform(x, y=None,
     crop_size: tuple
         The size of crop to be applied to images and masks (after any
         other transformation).
+    crop_mode: string
+        The cropping mode to be applied. It can be 'random' or 'smart'.
+        The 'smart' mode allows to crop the image centering the
+        attention where the objects are mainly located in the sequence.
+    smart_crop_h_shift_range: int
+        Max range for random vertical shift for 'smart' cropping.
+    smart_crop_w_shift_range: int
+        Max range for random horizontal shift for 'smart' cropping.
     return_optical_flow: bool
         If not False a dense optical flow will be concatenated to the
         end of the channel axis of the image. If True, angle and
@@ -563,6 +574,31 @@ def random_transform(x, y=None,
                                     fill_constant=cvalMask,
                                     rows_idx=rows_idx, cols_idx=cols_idx))
 
+    if crop_mode == 'smart':
+        if y.shape[-1] == 3:
+            foreground_mask = (np.sum(y, axis=3) > 0).astype(int)
+        else:
+            foreground_mask = np.squeeze((y > 0).astype(int), axis=3)
+        sequence_mask = np.sum(foreground_mask, axis=0)
+        max_mask_value = np.max(sequence_mask)
+        max_rows, max_cols = np.where(sequence_mask == max_mask_value)
+        crop_center_row = np.random.choice(max_rows)
+        # Random horizontal shift
+        # Choose if is a negative or positive shift
+        direction = np.random.choice([-1, 1])
+        top_shift = direction * np.random.randint(
+            smart_crop_h_shift_range)
+        crop_center_row += top_shift
+        crop_center_col = np.random.choice(max_cols)
+        # Random vertical shift
+        # Choose if is a negative or positive shift
+        direction = np.random.choice([-1, 1])
+        left_shift = direction * np.random.randint(
+            smart_crop_w_shift_range)
+        crop_center_col += left_shift
+        smart_crop_top = max(0, crop_center_row - crop_size[0] // 2)
+        smart_crop_left = max(0, crop_center_col - crop_size[1] // 2)
+
     # Crop
     # Expects axes with shape (..., 0, 1)
     # TODO: Add center crop
@@ -580,14 +616,24 @@ def random_transform(x, y=None,
         # Compute amounts
         if crop[0] < h:
             # Do random crop
-            top = np.random.randint(h - crop[0])
+            if crop_mode == 'random':
+                top = np.random.randint(h - crop[0])
+            elif crop_mode == 'smart':
+                if smart_crop_top + crop[0] > h:
+                    smart_crop_top = h - crop[0]
+                top = smart_crop_top
         else:
             # Set pad and reset crop
             pad[0] = crop[0] - h
             top, crop[0] = 0, h
         if crop[1] < w:
             # Do random crop
-            left = np.random.randint(w - crop[1])
+            if crop_mode == 'random':
+                left = np.random.randint(w - crop[1])
+            elif crop_mode == 'smart':
+                if smart_crop_left + crop[1] > w:
+                    smart_crop_left = w - crop[1]
+                left = smart_crop_left
         else:
             # Set pad and reset crop
             pad[1] = crop[1] - w
@@ -612,7 +658,7 @@ def random_transform(x, y=None,
 
     if return_optical_flow:
         flow = optical_flow(x, rows_idx, cols_idx, chan_idx,
-                            return_rgb=return_optical_flow=='rgb')
+                            return_rgb=return_optical_flow == 'rgb')
         x = np.concatenate((x, flow), axis=chan_idx)
 
     # Save augmented images
