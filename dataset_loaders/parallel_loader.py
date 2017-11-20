@@ -281,6 +281,14 @@ class ThreadedDataset(object):
             print('The local path {} does not exist. Copying '
                   'the dataset...'.format(self.path))
             shutil.copytree(self.shared_path, self.path)
+            
+            ## to make folder shared for others on same filesystem
+            if self.is_open_permissions == "True":
+                print "Setting permissions to 0755"
+                os.chmod(self.datasets_local_path, 0775)
+                for r,d,f in os.walk(self.path):
+                    os.chmod(r,0775)
+            
             with open(os.path.join(self.path, '__version__'), 'w') as f:
                 f.write(self.__version__)
             print('Done.')
@@ -302,6 +310,14 @@ class ThreadedDataset(object):
                 if realpath(self.path) != realpath(self.shared_path):
                     shutil.rmtree(self.path)
                     shutil.copytree(self.shared_path, self.path)
+                    
+                    ## to make folder shared for others on same filesystem
+                    if self.is_open_permissions == "True":
+                        print "Setting permissions to 0755"
+                        os.chmod(self.datasets_local_path, 0775)
+                        for r,d,f in os.walk(self.path):
+                            os.chmod(r,0775)
+                    
                 with open(os.path.join(self.path, '__version__'), 'w') as f:
                     f.write(self.__version__)
                 print('Done.')
@@ -808,7 +824,17 @@ class ThreadedDataset(object):
                                'path.' % config_path)
         config_parser.read(config_path)
         return config_parser
-
+    
+    @classproperty
+    def datasets_local_path(self):
+        config_parser = self.__config_parser__
+        return config_parser.get('general', 'datasets_local_path')
+    
+    @classproperty
+    def is_open_permissions(self):
+        config_parser = self.__config_parser__
+        return config_parser.get('general', 'open_permissions')
+    
     @classproperty
     def path(self):
         config_parser = self.__config_parser__
